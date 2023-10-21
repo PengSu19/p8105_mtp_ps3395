@@ -5,13 +5,215 @@ date: "2023-10-19"
 output: github_document
 ---
 
-```{r}
+```{r setup, include=FALSE}
 library(tidyverse)
+library(readxl)
+library(wordcountaddin)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	message = FALSE,
+	fig.width = 11, 
+  fig.height = 8,
+  out.width = "90%",
+	fig.align = 'center'
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
 ```
 
-abcd and c `r mean(c(12,13,15))`
+# Problem 1
 
 ```{r}
+#import the raw data
+#ZIP code data
+zip = 
+  read_csv("data/Zip Codes.csv") |>
+  janitor::clean_names()
+
+#COA data
+COA_2018 = 
+  read_excel("data/USPS CHANGE OF ADDRESS NYC.xlsx", 
+                 sheet = "2018") |>
+  janitor::clean_names()
+
+COA_2019 = 
+  read_excel("data/USPS CHANGE OF ADDRESS NYC.xlsx", 
+                 sheet = "2019") |>
+  janitor::clean_names()
+
+COA_2020 = 
+  read_excel("data/USPS CHANGE OF ADDRESS NYC.xlsx", 
+                 sheet = "2020") |>
+  janitor::clean_names()
+
+COA_2021 = 
+  read_excel("data/USPS CHANGE OF ADDRESS NYC.xlsx", 
+                 sheet = "2021") |>
+  janitor::clean_names()
+
+COA_2022 = 
+  read_excel("data/USPS CHANGE OF ADDRESS NYC.xlsx", 
+                 sheet = "2022") |>
+  janitor::clean_names()
+```
+
+The raw "COA" dataset captures monthly data on the total number of COAs entering and leaving each ZIP code in NYC from 2018 to 2022. Additionally, the "ZIP codes" data contains information on the boroughs and neighborhoods, totaling `r nrow(zip)` observations, including NAs.
+
+This report aims to analyze the COA changes in NYC between 2018 and 2022.
+
+```{r}
+#Clean, Tidy and combine the data
+zip = 
+  zip |>
+  mutate(
+    borough = county_name,
+    borough = str_replace(borough, "New York", "Manhattan")
+  )
+
+COA = 
+  bind_rows(COA_2018, COA_2019, COA_2020, COA_2021, COA_2022) |>
+  separate(month , into = c("year", "month", "day"), sep = "-") |>
+  mutate(
+    net_change = total_perm_in - total_perm_out
+  ) |>
+  select(everything(), zip_code = zipcode, -day)
+length(unique(zip$zip_code))
+merge_df = 
+  left_join(COA, zip, by = "zip_code", relationship = "many-to-many") |>
+  mutate(
+    city = str_to_lower(city),
+    county_name = str_to_lower(county_name),
+    neighborhood = str_to_lower(neighborhood),
+    borough = str_to_lower(borough)
+  ) |>
+  drop_na()
+```
+
+COA data from different years were consolidated into a single `COA` dataset, and a `year` variable was extracted from `month`. Also, `net_change` variable was created to represent the difference between inbound and outbound COAs. For `zip` dataset, `borough` was derived from the `county_name`. Subsequently, the `zip` and `COA` were merged to `merge_df` based on ZIP codes and missing values were removed to ensure data quality. Furthermore, `Manhattan` was designated as the borough for New York County, and characters such as `city` and `borough` were converted to lowercase.
+
+After the cleaning, `merge_df` now comprises a total of `r nrow(merge_df)` observations, encompassing `r length(unique(pull(merge_df,zip_code)))` unique ZIP codes and `r length(unique(pull(merge_df,neighborhood)))` neighborhoods.
+
+```{r}
+#comparison between City and Borough
+#most common cities in Manhattan (top 5)
+
+merge_df |>
+  filter(
+    borough == "manhattan"
+  ) |>
+  select(city, borough) |>
+  count(city, name = "n_obs") |>
+  top_n(5, wt = n_obs) |>
+  arrange(desc(n_obs)) |>
+  knitr::kable(col.names = c("city", "value"),
+               caption = "Table 1, most common values of city in the borough of Manhattan")
+
+#most common cities in Queens (top 5)
+
+merge_df |>
+  filter(
+    borough == "queens"
+  ) |>
+  select(city, borough) |>
+  count(city, name = "n_obs") |>
+  top_n(5, wt = n_obs) |>
+  arrange(desc(n_obs)) |>
+  knitr::kable(col.names = c("city", "value"),
+               caption = "Table 2, most common values of city in the borough of Queens")
+```
+
+Tables 1 and 2 present the most common cities in Manhattan and Queens. Comparing with Queens, Manhattan's data indicates a significant disparity in the number of cities which may be attributed to variations in the number of neighborhoods within each city.
+
+Many ZIP codes in the raw data had fewer observations and included NA values for neighborhoods. This can be attributed to regional variations in geographical location and socioeconomic factors affecting data collection. For instance, city like New York of Manhattan have the resources to consistently report data, given their high population density, resulting in 60 months of available data. Conversely, remote rural neighborhoods often lack such resources, leading to limited data collection.  Additionally, geographically remote ZIP codes may not collect neighborhood data as comprehensively as highly developed cities may also contributing to the absence of neighborhood information.
+
+# Problem 2 
+
+```{r}
+#reader-friendly table showing the average of net_change in each borough and year
+merge_df |>
+  select(year, borough, net_change) |>
+  group_by(borough,year) |>
+  summarize(
+    mean_change = mean(net_change, na.rm = TRUE)
+  ) |>
+  pivot_wider(
+    names_from = "year", 
+    values_from = "mean_change"
+    ) |>
+  knitr::kable(digits = 2,
+    caption = "Table 3, the average of 'net_change' in each borough and year") 
+```
+
+Table 3 shows that average `net_change` decreased in all boroughs except Richmond, reaching their lowest points in 2020. This suggests that, there were significantly more permanent address changes moving out of each ZIP code than moving in.
+
+```{r}
+#five lowest values of net_change over all obs.
+merge_df |>
+  top_n(-5, wt = net_change) |>
+  select(year, month, zip_code, neighborhood) |>
+  knitr::kable(caption = "Table 4, five lowest values of 'net_change' over all observations")
+
+#before 2020, the five highest values of net_change.
+merge_df |>
+  filter(
+    year < 2020
+  ) |>
+  top_n(5, wt = net_change) |>
+  select(year, month, zip_code, neighborhood) |>
+  knitr::kable(caption = "Table 5, the five highest values of 'net_change' over all observations before 2020")
+```
+
+
+```{r}
+#trend of moving
+moving_trends = 
+  merge_df |>
+  mutate(
+    date = paste(year, month, sep = "-"),
+    date = as.Date(paste(date, "-01", sep = ""), format = "%Y-%m-%d"),
+    neighborhood = as.factor(neighborhood),
+    borough = as.factor(borough)
+  ) |>
+  select(
+    date, zip_code, net_change, neighborhood, borough
+  ) |>
+  group_by(neighborhood, date) |>
+  mutate(
+    mean_change = mean(net_change, na.rm = TRUE )
+  ) |>
+  ggplot(aes(x = date, y = mean_change, color = neighborhood)) + 
+  geom_point(alpha = .5) +
+  geom_smooth(se = FALSE) +
+  facet_grid(. ~ borough) +
+  labs(x = "Date", 
+       y = "Average 'net_change'",
+       title = "Trends in moving",
+       caption = "Fig 1, monthly net_change over the five-year period across neighborhood-levels among different boroughs") +
+  theme(axis.text.x = element_text(angle = 70))
+
+moving_trends
+```
+
+```{r include=FALSE}
+ggsave("result/moving_trends.pdf", moving_trends)
+```
+
+
+Figure 1 displays a five-year trend of average `net_change` across ZIP codes within neighborhoods, with different colors representing distinct neighborhoods. Notably, all boroughs, except for Richmond, exhibit relatively similar moving trends. The majority of the time shows a negative `net_change`, suggesting more people moved out of ZIP codes than into them. This negative trend intensified from 2020 to 2021, indicating a substantial increase in people leaving neighborhoods. The trend is most pronounced in Manhattan, with notable outliers around 2020. Richmond's moving trends remained fairly steady from 2018 to 2022.
+
+However, this dataset lacks the initial population data. This limitation makes it challenging to assess the changes in the context of the entire population. Therefore, it's difficult to accurately determine the overall population size changes. Additionally, the levels of ZIP codes can complicate the interpretation of population changes. Visualizing the data by neighborhoods may offer a more comprehensible perspective.
+
+```{r wordcount}
 wordcountaddin::text_stats("p8105_mtp_ps3395.Rmd")
 ```
 
