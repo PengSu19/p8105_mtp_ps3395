@@ -1,0 +1,17 @@
+---
+title: "p8105_mtp_ps3395"
+author: "Peng Su"
+date: "2023-10-19"
+output: github_document
+---
+
+```{r}
+library(tidyverse)
+```
+
+abcd and c `r mean(c(12,13,15))`
+
+```{r}
+wordcountaddin::text_stats("p8105_mtp_ps3395.Rmd")
+```
+
