@@ -77,7 +77,34 @@ zip =
   zip |>
   mutate(
     borough = county_name,
-    borough = str_replace(borough, "New York", "Manhattan")
+    borough = case_match (
+      borough,
+      "Bronx" ~ "Bronx",
+      "Richmond" ~ 'Staten Island',
+      "New York" ~ "Manhattan",
+      "Queens" ~ 'Queens',
+      "Kings" ~ 'Brooklyn',
+  ))
+
+#checking duplicates and change them by recommend borough from USPS
+zip |>
+  group_by(zip_code) |>
+  filter(n() > 1) |>
+  select(
+    county_name, zip_code, borough
+  ) |>
+  knitr::kable(caption = "Table 0, quality issue due to duplicates in zip data")
+
+#quality control of zip code data
+zip = 
+  zip |>
+  filter(case_when(
+    zip_code == 10463 & borough == "Manhattan" ~ FALSE,
+    zip_code == 11201 & borough == "Manhattan" ~ FALSE, 
+    zip_code == 11239 & borough == "Queens" ~ FALSE,
+    zip_code == 11693 & borough == "Brooklyn" ~ FALSE,
+    TRUE ~ TRUE
+    )
   )
 
 COA = 
@@ -87,25 +114,25 @@ COA =
     net_change = total_perm_in - total_perm_out
   ) |>
   select(everything(), zip_code = zipcode, -day)
-length(unique(zip$zip_code))
+
+#merge data
 merge_df = 
-  left_join(COA, zip, by = "zip_code", relationship = "many-to-many") |>
+  left_join(COA, zip, by = "zip_code") |>
   mutate(
     city = str_to_lower(city),
     county_name = str_to_lower(county_name),
     neighborhood = str_to_lower(neighborhood),
     borough = str_to_lower(borough)
-  ) |>
-  drop_na()
+  )
 ```
 
-COA data from different years were consolidated into a single `COA` dataset, and a `year` variable was extracted from `month`. Also, `net_change` variable was created to represent the difference between inbound and outbound COAs. For `zip` dataset, `borough` was derived from the `county_name`. Subsequently, the `zip` and `COA` were merged to `merge_df` based on ZIP codes and missing values were removed to ensure data quality. Furthermore, `Manhattan` was designated as the borough for New York County, and characters such as `city` and `borough` were converted to lowercase.
+COA data from different years were consolidated into a single `COA` dataset, and a `year` variable was extracted from `month`. Also, `net_change` variable was created to represent the difference between inbound and outbound COAs. For `zip` dataset, `borough` was derived from the `county_name`. Subsequently, the `zip` and `COA` were merged to `merge_df` based on ZIP codes and duplicates in `zip` were removed to ensure data quality. Furthermore, the borough was changed according to the corresponding county, and characters such as `borough` were converted to lowercase.
 
 After the cleaning, `merge_df` now comprises a total of `r nrow(merge_df)` observations, encompassing `r length(unique(pull(merge_df,zip_code)))` unique ZIP codes and `r length(unique(pull(merge_df,neighborhood)))` neighborhoods.
 
 ```{r}
 #comparison between City and Borough
-#most common cities in Manhattan (top 5)
+#most common cities in Manhattan (top 3)
 
 merge_df |>
   filter(
@@ -113,12 +140,12 @@ merge_df |>
   ) |>
   select(city, borough) |>
   count(city, name = "n_obs") |>
-  top_n(5, wt = n_obs) |>
+  top_n(3, wt = n_obs) |>
   arrange(desc(n_obs)) |>
   knitr::kable(col.names = c("city", "value"),
                caption = "Table 1, most common values of city in the borough of Manhattan")
 
-#most common cities in Queens (top 5)
+#most common cities in Queens (top 3)
 
 merge_df |>
   filter(
@@ -126,7 +153,7 @@ merge_df |>
   ) |>
   select(city, borough) |>
   count(city, name = "n_obs") |>
-  top_n(5, wt = n_obs) |>
+  top_n(3, wt = n_obs) |>
   arrange(desc(n_obs)) |>
   knitr::kable(col.names = c("city", "value"),
                caption = "Table 2, most common values of city in the borough of Queens")
@@ -134,7 +161,7 @@ merge_df |>
 
 Tables 1 and 2 present the most common cities in Manhattan and Queens. Comparing with Queens, Manhattan's data indicates a significant disparity in the number of cities which may be attributed to variations in the number of neighborhoods within each city.
 
-Many ZIP codes in the raw data had fewer observations and included NA values for neighborhoods. This can be attributed to regional variations in geographical location and socioeconomic factors affecting data collection. For instance, city like New York of Manhattan have the resources to consistently report data, given their high population density, resulting in 60 months of available data. Conversely, remote rural neighborhoods often lack such resources, leading to limited data collection.  Additionally, geographically remote ZIP codes may not collect neighborhood data as comprehensively as highly developed cities may also contributing to the absence of neighborhood information.
+Many ZIP codes in `zip` had fewer observations and included NA values for neighborhoods. This can be attributed to regional variations in geographical location and socioeconomic factors affecting data collection. For instance, city like New York of Manhattan have the resources to consistently report data, given their high population density, resulting in 60 months of available data. Conversely, remote rural neighborhoods often lack such resources, leading to limited data collection.  Additionally, geographically remote ZIP codes may not collect neighborhood data as comprehensively as highly developed cities may also contributing to the absence of neighborhood information.
 
 # Problem 2 
 
@@ -154,7 +181,7 @@ merge_df |>
     caption = "Table 3, the average of 'net_change' in each borough and year") 
 ```
 
-Table 3 shows that average `net_change` decreased in all boroughs except Richmond, reaching their lowest points in 2020. This suggests that, there were significantly more permanent address changes moving out of each ZIP code than moving in.
+Table 3 shows that average `net_change` decreased in all boroughs except Staten Island, reaching their lowest points in 2020. This suggests that, there were significantly more permanent address changes moving out of each ZIP code than moving in.
 
 ```{r}
 #five lowest values of net_change over all obs.
@@ -209,7 +236,7 @@ ggsave("result/moving_trends.pdf", moving_trends)
 ```
 
 
-Figure 1 displays a five-year trend of average `net_change` across ZIP codes within neighborhoods, with different colors representing distinct neighborhoods. Notably, all boroughs, except for Richmond, exhibit relatively similar moving trends. The majority of the time shows a negative `net_change`, suggesting more people moved out of ZIP codes than into them. This negative trend intensified from 2020 to 2021, indicating a substantial increase in people leaving neighborhoods. The trend is most pronounced in Manhattan, with notable outliers around 2020. Richmond's moving trends remained fairly steady from 2018 to 2022.
+Figure 1 displays a five-year trend of average `net_change` across ZIP codes within neighborhoods, with different colors representing distinct neighborhoods. Notably, all boroughs, except for Staten Island, exhibit relatively similar moving trends. The majority of the time shows a negative `net_change`, suggesting more people moved out of ZIP codes than into them. This negative trend intensified from 2020 to 2021, indicating a substantial increase in people leaving neighborhoods. The trend is most pronounced in Manhattan, with notable outliers around 2020. Staten Island's moving trends remained fairly steady from 2018 to 2022.
 
 However, this dataset lacks the initial population data. This limitation makes it challenging to assess the changes in the context of the entire population. Therefore, it's difficult to accurately determine the overall population size changes. Additionally, the levels of ZIP codes can complicate the interpretation of population changes. Visualizing the data by neighborhoods may offer a more comprehensible perspective.
 
